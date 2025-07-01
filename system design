@@ -1,0 +1,432 @@
+🧱 FULL DJANGO BACKEND SYSTEM ARCHITECTURE (WITH FBVs + ENDPOINTS)
+🧩 TECHNOLOGY STACK
+Layer	Stack
+Language	Python 3.11+
+Framework	Django 5.x + Django REST Framework (FBVs)
+Auth	SimpleJWT (JWT-based authentication)
+Database	PostgreSQL
+Async Tasks	Celery + Redis
+File Storage	Django default or django-storages (S3)
+AI Assistant	OpenAI or local model via REST endpoint
+SMS & Email	Africa’s Talking / Twilio / SendGrid
+
+📁 PROJECT STRUCTURE
+bash
+Copy
+Edit
+/backend
+├── config/                    # Main Django project
+│   ├── settings.py
+│   ├── urls.py
+│   └── celery.py
+│
+├── apps/
+│   ├── users/                 # Auth, roles, employee data
+│   ├── attendance/            # Clock-in/out, GPS
+│   ├── payroll/               # Salaries, deductions, payslips
+│   ├── leave/                 # Leave requests + approval
+│   ├── performance/           # KPI, feedback
+│   ├── chatbot/               # AI assistant
+│   ├── wellness/              # Mood checks, feedback
+│   └── notifications/         # SMS + email (via Celery)
+│
+├── static/ / media/           # Optional for admin / files
+├── manage.py
+└── requirements.txt
+🔐 USERS / AUTH MODULE
+model: CustomUser
+python
+Copy
+Edit
+class CustomUser(AbstractUser):
+    ROLE_CHOICES = [
+        ('admin', 'Admin'),
+        ('hr', 'HR Manager'),
+        ('supervisor', 'Supervisor'),
+        ('employee', 'Employee')
+    ]
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='employee')
+    phone = models.CharField(max_length=15)
+    national_id = models.CharField(max_length=25, null=True, blank=True)
+views: FBVs
+python
+Copy
+Edit
+@api_view(['POST'])
+def login_view(request):
+    ...
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me_view(request):
+    ...
+endpoints
+Method	URL	Description
+POST	/api/auth/login/	Get access + refresh JWT
+GET	/api/auth/me/	Current logged-in user
+
+🕒 ATTENDANCE
+model
+python
+Copy
+Edit
+class Attendance(models.Model):
+    employee = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    check_in = models.DateTimeField()
+    check_out = models.DateTimeField(null=True, blank=True)
+    gps_location = models.JSONField()
+    method = models.CharField(max_length=10)
+views
+python
+Copy
+Edit
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def clock_in_view(request):
+    ...
+endpoints
+Method	URL	Description
+POST	/api/attendance/clock-in/	Clock in employee
+POST	/api/attendance/clock-out/	Clock out employee
+GET	/api/attendance/history/	View personal history
+
+🌴 LEAVE MANAGEMENT
+models
+python
+Copy
+Edit
+class LeaveType(models.Model):
+    name = models.CharField(max_length=50)
+    max_days = models.IntegerField()
+
+class LeaveRequest(models.Model):
+    employee = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    leave_type = models.ForeignKey(LeaveType, on_delete=models.CASCADE)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    status = models.CharField(max_length=10, choices=[('pending', 'Pending'), ...])
+    approved_by = models.ForeignKey(CustomUser, null=True, blank=True, on_delete=models.SET_NULL, related_name='approver')
+views
+python
+Copy
+Edit
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def request_leave_view(request):
+    ...
+endpoints
+Method	URL	Description
+POST	/api/leave/request/	Submit a leave request
+GET	/api/leave/history/	View user leave history
+PUT	/api/leave/<id>/approve/	HR approves/rejects request
+
+💰 PAYROLL
+models
+python
+Copy
+Edit
+class Salary(models.Model):
+    employee = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    base_salary = models.DecimalField(...)
+    allowances = models.DecimalField(...)
+    deductions = models.DecimalField(...)
+    tax = models.DecimalField(...)
+    net_pay = models.DecimalField(...)
+
+class Payslip(models.Model):
+    employee = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    month = models.DateField()
+    generated_on = models.DateTimeField(auto_now_add=True)
+    file = models.FileField(upload_to='payslips/', null=True, blank=True)
+views
+python
+Copy
+Edit
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def generate_payroll_view(request):
+    ...
+endpoints
+Method	URL	Description
+POST	/api/payroll/generate/	Generate monthly payroll
+GET	/api/payroll/payslips/	View all payslips
+
+📈 PERFORMANCE REVIEWS
+model
+python
+Copy
+Edit
+class PerformanceReview(models.Model):
+    employee = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    reviewer = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name="reviewed_by")
+    date = models.DateField()
+    kpi_score = models.FloatField()
+    feedback = models.TextField()
+    goals = models.JSONField()
+endpoints
+Method	URL	Description
+POST	/api/performance/review/	Submit review
+GET	/api/performance/my-reviews/	View your reviews
+GET	/api/performance/employee/<id>/	View employee reviews (HR)
+
+🤖 CHATBOT
+views
+python
+Copy
+Edit
+@api_view(['POST'])
+def chatbot_view(request):
+    prompt = request.data.get("query")
+    ...
+endpoints
+Method	URL	Description
+POST	/api/chatbot/query/	Submit question to AI bot
+
+💬 NOTIFICATIONS (SMS / EMAIL)
+tasks.py (Celery)
+python
+Copy
+Edit
+@shared_task
+def send_sms(phone, message):
+    ...
+
+@shared_task
+def send_email(to, subject, message):
+    ...
+endpoints
+Method	URL	Description
+POST	/api/notifications/send-sms/	Send SMS (async)
+POST	/api/notifications/send-email/	Send Email
+
+🧠 WELLNESS & FEEDBACK
+endpoints
+Method	URL	Description
+POST	/api/wellness/mood-check/	Submit mood anonymously
+POST	/api/wellness/report-issue/	Submit anonymous complaint
+GET	/api/wellness/summary/	HR view of wellness trends
+
+🧪 SYSTEM EXTRAS
+Celery for async: used for payroll processing, notifications
+
+OpenAI/LLM integration: chatbot assistant
+
+CORS headers: for frontend access
+
+Role-based decorators: @hr_only, @is_employee
+
+Swagger / ReDoc: for interactive API docs (drf-spectacular)
+
+🔐 SECURITY CONFIG
+Feature	Tool / Config
+Auth	SimpleJWT
+Permissions	IsAuthenticated, IsAdminUser, custom roles
+CORS	django-cors-headers
+Rate Limiting	throttling classes (DRF)
+Audit Logging	Custom middleware / logging
+
+✅ END RESULT
+This backend is:
+
+🔌 Modular and plug-and-play
+
+🔐 Role-secured and scalable
+
+🔁 React-ready (Vite-friendly JSON APIs)
+
+⚡ Async-capable via Celery
+
+🤖 AI-enabled with chatbot endpoints
+
+Let me know if you want:
+
+✅ A working GitHub boilerplate starter for this
+
+✅ Database schema diagram (DBML)
+
+✅ Frontend consumption plan (React hooks + services)
+
+✅ Postman collection to test these APIs
+
+
+⚛️ FRONTEND SYSTEM ARCHITECTURE (React + Vite + Tailwind)
+🧩 STACK OVERVIEW
+Layer	Stack
+Framework	React 18 (Vite)
+Styling	Tailwind CSS
+State Management	React Context API (or Zustand opt)
+API Handling	Axios + React Query or custom hooks
+Routing	React Router DOM
+Auth	JWT stored in localStorage
+UI Components	Custom or Headless UI (optional)
+Optimization	Vite PWA plugin (offline support)
+
+📁 FOLDER STRUCTURE
+bash
+Copy
+Edit
+/frontend
+├── public/                   # Static assets (favicons, logos)
+├── src/
+│   ├── assets/               # Images, SVGs, fonts
+│   ├── components/           # Reusable UI components (Nav, Loader)
+│   ├── features/             # Domain logic (modular per app)
+│   │   ├── auth/             # Login, logout, JWT management
+│   │   ├── dashboard/        # Widgets, overview panels
+│   │   ├── attendance/       # Clock in/out, history
+│   │   ├── leave/            # Leave request, calendar
+│   │   ├── payroll/          # Payslip preview, salary history
+│   │   ├── performance/      # KPIs, feedback viewer
+│   │   ├── wellness/         # Mood check, anonymous form
+│   │   ├── chatbot/          # AI Assistant frontend
+│   ├── hooks/                # Custom hooks (e.g., useAuth, useApi)
+│   ├── context/              # Global context providers (auth, user)
+│   ├── services/             # Axios config + API handlers
+│   ├── pages/                # Top-level views tied to routes
+│   ├── App.jsx               # App entry with routes
+│   └── main.jsx              # Vite entry point
+├── tailwind.config.js        # Tailwind theming
+├── index.html                # Root HTML
+└── vite.config.js            # Vite config
+🧠 FEATURE MODULE BREAKDOWN
+🧍 Auth (JWT)
+Login form → POST /api/auth/login/
+
+Stores token in localStorage
+
+Adds Authorization: Bearer <token> header to requests
+
+Protects private routes with a PrivateRoute wrapper
+
+⏱ Attendance
+Clock-in form (GPS or manual)
+
+Sends data to POST /api/attendance/clock-in/
+
+Shows attendance logs via GET /api/attendance/history/
+
+🌴 Leave
+Leave request form (dropdown + date picker)
+
+Call to POST /api/leave/request/
+
+Approval logic for HR
+
+Leave calendar or table (pending, approved, rejected)
+
+💰 Payroll
+Payslip dashboard → Monthly breakdown
+
+Call to GET /api/payroll/payslips/
+
+Optional: Download PDF (if backend serves files)
+
+📈 Performance
+KPIs dashboard, goals list, feedback viewer
+
+GET /api/performance/my-reviews/
+
+🤖 Chatbot
+Chat interface (like ChatGPT)
+
+Form sends question to POST /api/chatbot/query/
+
+Displays AI response with markdown parsing (optional)
+
+💬 Wellness
+Mood check-in buttons (emoji or mood text)
+
+Anonymous form submission
+
+Data gets posted to backend for HR to analyze
+
+⚙️ REACT CONTEXT SETUP
+AuthContext
+jsx
+Copy
+Edit
+<AuthProvider>
+  <App />
+</AuthProvider>
+Manages:
+
+isAuthenticated
+
+user info
+
+login(), logout()
+
+🔗 API HANDLER SERVICE (Axios Wrapper)
+js
+Copy
+Edit
+// services/api.js
+import axios from 'axios'
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL,
+})
+
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem("token")
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+export default api
+🧠 CUSTOM HOOK EXAMPLES
+js
+Copy
+Edit
+// hooks/useAuth.js
+import { useContext } from 'react'
+import { AuthContext } from '../context/AuthContext'
+
+export const useAuth = () => useContext(AuthContext)
+🧭 ROUTING STRUCTURE (React Router v6)
+jsx
+Copy
+Edit
+<Routes>
+  <Route path="/login" element={<LoginPage />} />
+  <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+  <Route path="/leave" element={<LeavePage />} />
+  <Route path="/chatbot" element={<Chatbot />} />
+</Routes>
+🎨 TAILWIND THEME RECOMMENDATION
+js
+Copy
+Edit
+// tailwind.config.js
+theme: {
+  extend: {
+    colors: {
+      primary: '#1D4ED8',
+      secondary: '#64748B',
+      danger: '#EF4444',
+      success: '#22C55E',
+    }
+  }
+}
+📦 .env Example
+env
+Copy
+Edit
+VITE_API_BASE_URL=http://localhost:8000/api
+⚡ Vite Plugins (Optional)
+vite-plugin-pwa for offline-first apps
+
+vite-plugin-svgr for SVGs as components
+
+vite-plugin-environment to manage .env vars cleanly
+
+✅ FEATURES CHECKLIST
+Feature	Status
+Modular file layout	✅
+Tailwind styling	✅
+JWT auth	✅
+API integration ready	✅
+Offline-ready (PWA)	Optional (add plugin)
+Dashboard widgets	Optional (Recharts/Chart.js)
+
+
